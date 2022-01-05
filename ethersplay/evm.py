@@ -6,6 +6,7 @@ try:
 except ImportError:
     pass
 
+from sha3 import keccak_256
 from interval3 import Interval, IntervalSet
 
 from binaryninja import (LLIL_TEMP, Architecture, BinaryDataNotification,
@@ -162,8 +163,85 @@ def mstore(il, addr, imm):
 
 
 insn_il = {
-    'AND': lambda il, addr, imm: il.push(
-        ADDR_SIZE, il.and_expr(
+    'STOP': lambda il, addr, imm: il.no_ret(),
+    'ADD': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.add(
+            ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
+        )
+    ),
+    'MUL': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.mult(
+            ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
+        )
+    ),
+    'SUB': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.sub(
+            ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
+        )
+    ),
+    'DIV': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.div_unsigned(
+            ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
+        )
+    ),
+    'SDIV': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.div_signed(
+            ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
+        )
+    ),
+    'MOD': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.mod_unsigned(
+            ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
+        )
+    ),
+    'SMOD': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.mod_signed(
+            ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
+        )
+    ),
+    'ADDMOD': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.mod_unsigned(
+            ADDR_SIZE, 
+            il.add(
+                ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
+            ),
+            il.pop(ADDR_SIZE)
+        )
+    ),
+    'MULMOD': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.mod_unsigned(
+            ADDR_SIZE, 
+            il.mul(
+                ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
+            ),
+            il.pop(ADDR_SIZE)
+        )
+    ),
+    'EXP': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'SIGNEXTEND': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.sign_extend(
+            ADDR_SIZE, il.pop(ADDR_SIZE)
+        )
+    ),
+    'LT': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.compare_unsigned_less_than(
+            ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
+        )
+    ),
+    'GT': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.compare_unsigned_greater_than(
+            ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
+        )
+    ),
+    'SLT': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.compare_signed_less_than(
+            ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
+        )
+    ),
+    'SGT': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.compare_signed_greater_than(
             ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
         )
     ),
@@ -172,20 +250,157 @@ insn_il = {
             ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
         )
     ),
-    'LT': lambda il, addr, imm: il.push(
-        ADDR_SIZE, il.compare_unsigned_less_than(
-            ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
-        )
-    ),
     'ISZERO': lambda il, addr, imm: il.push(
         ADDR_SIZE, il.compare_equal(
             ADDR_SIZE, il.pop(ADDR_SIZE), il.const(ADDR_SIZE, 0)
         )
     ),
+    'AND': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.and_expr(
+            ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
+        )
+    ),
+    'OR': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.or_expr(
+            ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
+        )
+    ),
+    'XOR': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.xor_expr(
+            ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
+        )
+    ),
+    'NOT': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.not_expr(
+            ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
+        )
+    ),
+    'BYTE': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'SHL': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.shift_left(
+            ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
+        )
+    ),
+    'SHR': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.logical_shift_right(
+            ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
+        )
+    ),
+    'SAR': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.arith_shift_right(
+            ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
+        )
+    ),
+    # SHA3 and KECCAK256 are the same opcode, conflicting names in libraries/docs
+    'SHA3': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'KECCAK256': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'ADDRESS': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'ORIGIN': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'CALLER': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'CALLVALUE': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'CALLDATALOAD': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'CALLDATASIZE': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'CALLDATACOPY': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'CODESIZE': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'CODECOPY': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'GASPRICE': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'EXTCODESIZE': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'EXTCODECOPY': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'RETURNDATASIZE': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'RETURNDATACOPY': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'EXTCODEHASH': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'BLOCKHASH': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'COINBASE': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'TIMESTAMP': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'NUMBER': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'DIFFICULTY': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'GASLIMIT': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'CHAINID': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'BASEFEE': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
     'POP': lambda il, addr, imm: il.pop(ADDR_SIZE),
+    'MLOAD': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
     'MSTORE': mstore,
+    'MSTORE8': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'SLOAD': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'SSTORE': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
     'JUMP': jump,
     'JUMPI': jumpi,
+    # GETPC and PC are the same opcode, conflicting names in libraries/yellow paper
+    'GETPC': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'PC': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'MSIZE': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'GAS': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'JUMPDEST': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
     'PUSH1':  push,
     'PUSH2':  push,
     'PUSH3':  push,
@@ -250,10 +465,46 @@ insn_il = {
     'SWAP14': lambda il, addr, imm: swap(il, addr, 14),
     'SWAP15': lambda il, addr, imm: swap(il, addr, 15),
     'SWAP16': lambda il, addr, imm: swap(il, addr, 16),
-    'STOP': lambda il, addr, imm: il.no_ret(),
-    'REVERT': lambda il, addr, imm: il.no_ret(),
+    'LOG0': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'LOG1': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'LOG2': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'LOG3': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'LOG4': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'CREATE': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'CALL': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'CALLCODE': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
     'RETURN': lambda il, addr, imm: il.ret(il.pop(ADDR_SIZE)),
+    'DELEGATECALL': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'CREATE2': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'STATICCALL': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'TXEXECGAS': lambda il, addr, imm: il.push(
+        ADDR_SIZE, il.unimplemented()
+    ),
+    'REVERT': lambda il, addr, imm: il.no_ret(),
     'INVALID': lambda il, addr, imm: il.no_ret(),
+    # SUICIDE and SELFDESTRUCT are the same opcode, renamed at some point
     'SUICIDE': lambda il, addr, imm: il.ret(il.pop(ADDR_SIZE)),
     'SELFDESTRUCT': lambda il, addr, imm: il.ret(il.pop(ADDR_SIZE)),
 }
