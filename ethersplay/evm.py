@@ -15,7 +15,7 @@ from binaryninja import (LLIL_TEMP, Architecture, BinaryDataNotification,
                          LowLevelILLabel, LowLevelILOperation, RegisterInfo, log_info,
                          SegmentFlag, Symbol, SymbolType, log_debug, Settings, SettingsScope)
 from binaryninja.function import _FunctionAssociatedDataStore
-from pyevmasm import assemble, disassemble_one
+from .pyevmasm.pyevmasm import assemble, disassemble_one
 
 from .analysis import VsaNotification
 from .common import ADDR_SIZE

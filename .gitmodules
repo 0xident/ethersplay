@@ -1,0 +1,3 @@
+[submodule "ethersplay/pyevmasm"]
+	path = ethersplay/pyevmasm
+	url = github-mpysec:mpysec/pyevmasm
