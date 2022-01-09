@@ -148,20 +148,36 @@ def jump(il, addr, imm):
 def push(il, addr, imm):
     return il.push(ADDR_SIZE, il.const(ADDR_SIZE, imm))
 
+def mload(il, addr, imm):
+    il.append(il.set_reg(ADDR_SIZE, LLIL_TEMP(0), il.pop(ADDR_SIZE)))
+    il.append(il.push(ADDR_SIZE, il.reg(ADDR_SIZE, LLIL_TEMP(0))))
+    return []
 
 def mstore(il, addr, imm):
     il.append(il.set_reg(ADDR_SIZE, LLIL_TEMP(0), il.pop(ADDR_SIZE)))
     il.append(il.set_reg(ADDR_SIZE, LLIL_TEMP(1), il.pop(ADDR_SIZE)))
-    # il.append(
-    #     il.store(
-    #         ADDR_SIZE,
-    #         il.unimplemented(),
-    #         il.reg(ADDR_SIZE, LLIL_TEMP(1))
-    #     )
-    # )
+    il.append(
+        il.store(
+            ADDR_SIZE,
+            il.reg(ADDR_SIZE, LLIL_TEMP(0)),
+            il.reg(ADDR_SIZE, LLIL_TEMP(1))
+        )
+    )
     return []
 
+def mstore8(il, addr, imm):
+    il.append(il.set_reg(ADDR_SIZE, LLIL_TEMP(0), il.pop(ADDR_SIZE)))
+    il.append(il.set_reg(ADDR_SIZE, LLIL_TEMP(1), il.pop(ADDR_SIZE)))
+    il.append(
+        il.store(
+            1,
+            il.reg(ADDR_SIZE, LLIL_TEMP(0)),
+            il.and_expr(ADDR_SIZE, il.reg(ADDR_SIZE, LLIL_TEMP(1)), il.const(ADDR_SIZE, 0xff))
+        )
+    )
+    return []
 
+# Good reference for behavior: https://www.ethervm.io/
 insn_il = {
     'STOP': lambda il, addr, imm: il.no_ret(),
     'ADD': lambda il, addr, imm: il.push(
@@ -293,7 +309,7 @@ insn_il = {
             ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
         )
     ),
-    # SHA3 and KECCAK256 are the same opcode, conflicting names in libraries/docs
+    # SHA3 and KECCAK256 are the same opcode
     'SHA3': lambda il, addr, imm: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
@@ -370,13 +386,9 @@ insn_il = {
         ADDR_SIZE, il.unimplemented()
     ),
     'POP': lambda il, addr, imm: il.pop(ADDR_SIZE),
-    'MLOAD': lambda il, addr, imm: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
+    'MLOAD': mload,
     'MSTORE': mstore,
-    'MSTORE8': lambda il, addr, imm: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
+    'MSTORE8': mstore8,
     'SLOAD': lambda il, addr, imm: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
