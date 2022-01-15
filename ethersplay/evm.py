@@ -21,238 +21,47 @@ from .pyevmasm.pyevmasm import assemble, disassemble_one
 from .analysis import VsaNotification
 from .common import ADDR_SIZE
 from evm_cfg_builder.cfg import CFG
-
-
-def jumpi(il, addr, instr, state):
-    dest = il.pop(ADDR_SIZE)
-
-    if len(il) > 0:
-        push = il[len(il)-1]
-    else:
-        push = None
-
-    if (push is not None and
-            push.operation == LowLevelILOperation.LLIL_PUSH and
-            push.src.operation == LowLevelILOperation.LLIL_CONST):
-        dest = il.const(ADDR_SIZE, push.src.constant)
-        il.append(il.set_reg(ADDR_SIZE, LLIL_TEMP(1), il.pop(ADDR_SIZE)))
-    else:
-        il.append(dest)
-
-    t = LowLevelILLabel()
-    f = il.get_label_for_address(Architecture['EVM'], addr+1)
-    must_mark = False
-
-    if f is None:
-        f = LowLevelILLabel()
-        must_mark = True
-
-    # We need to use a temporary register here. The il.if_expr() helper
-    # function makes a tree and evaluates the condition's il.pop()
-    # first, but dest needs to be first.
-    #il.append(il.set_reg(ADDR_SIZE, LLIL_TEMP(addr), dest))
-
-    il.append(il.set_reg(ADDR_SIZE, LLIL_TEMP(0), il.pop(ADDR_SIZE)))
-    il.append(il.if_expr(il.reg(ADDR_SIZE, LLIL_TEMP(0)), t, f))
-
-    il.mark_label(t)
-    il.append(il.jump(il.unimplemented()))  # il.reg(ADDR_SIZE, LLIL_TEMP(1))))
-
-    if must_mark:
-        il.mark_label(f)
-        # false is the fall through case
-        il.append(il.jump(il.const(ADDR_SIZE, addr + 1)))
-
-    return []
-
-def dup(il, addr, distance):
-    il.append(
-        il.set_reg(
-            ADDR_SIZE, LLIL_TEMP(0), il.load(
-                ADDR_SIZE, il.add(
-                    ADDR_SIZE, il.reg(ADDR_SIZE, 'sp'),
-                    il.const(ADDR_SIZE, (distance - 1) * ADDR_SIZE)
-                )
-            )
-        )
-    )
-
-    il.append(il.push(ADDR_SIZE, il.reg(ADDR_SIZE, LLIL_TEMP(0))))
-
-    return []
-
-
-def swap(il, addr, distance):
-    stack_offset = distance * ADDR_SIZE
-
-    load = il.load(
-        ADDR_SIZE, il.add(
-            ADDR_SIZE,
-            il.reg(ADDR_SIZE, 'sp'),
-            il.const(ADDR_SIZE, stack_offset)
-        )
-    )
-
-    il.append(il.set_reg(ADDR_SIZE, LLIL_TEMP(0), load))
-
-    il.append(
-        il.set_reg(
-            ADDR_SIZE, LLIL_TEMP(1),
-            il.load(ADDR_SIZE, il.reg(ADDR_SIZE, 'sp'))
-        )
-    )
-
-    il.append(
-        il.store(
-            ADDR_SIZE, il.add(
-                ADDR_SIZE, il.reg(ADDR_SIZE, 'sp'),
-                il.const(ADDR_SIZE, stack_offset)
-            ),
-            il.reg(ADDR_SIZE, LLIL_TEMP(1))
-        )
-    )
-    il.append(
-        il.store(
-            ADDR_SIZE, il.reg(ADDR_SIZE, 'sp'),
-            il.reg(ADDR_SIZE, LLIL_TEMP(0))
-        )
-    )
-
-    return []
-
-
-def jump(il, addr, instr, state):
-    dest = il.pop(ADDR_SIZE)
-
-    if len(il) > 0:
-        push = il[len(il)-1]
-    else:
-        push = None
-
-    if (push is not None and
-            push.operation == LowLevelILOperation.LLIL_PUSH and
-            push.src.operation == LowLevelILOperation.LLIL_CONST):
-        dest = il.const(ADDR_SIZE, push.src.constant)
-        il.append(il.set_reg(ADDR_SIZE, LLIL_TEMP(0), il.pop(ADDR_SIZE)))
-
-    # We need to use a temporary register here. The il.if_expr() helper
-    # function makes a tree and evaluates the condition's il.pop()
-    # first, but dest needs to be first.
-    il.append(il.set_reg(ADDR_SIZE, LLIL_TEMP(addr), dest))
-
-    il.append(il.jump(il.reg(ADDR_SIZE, LLIL_TEMP(addr))))
-
-    return []
-
-def keccak256(il, addr, instr, state):
-    # Load offset and length
-    il.append(il.set_reg(ADDR_SIZE, LLIL_TEMP(0), il.pop(ADDR_SIZE)))
-    il.append(il.set_reg(ADDR_SIZE, LLIL_TEMP(1), il.pop(ADDR_SIZE)))
-    # Load length bytes from [offset]
-    il.append(
-        il.set_reg(
-            il.reg(ADDR_SIZE, LLIL_TEMP(1)),
-            LLIL_TEMP(2),
-            il.load(
-                il.reg(ADDR_SIZE, LLIL_TEMP(1)),
-                il.reg(ADDR_SIZE, LLIL_TEMP(0))
-            )
-        )
-    )
-    # TODO: put result of LLIL_TEMP(2) into keccak256 function and put result on top of stack
-
-    # TODO: placeholder, put junk on stack to emulate result
-    il.append(il.push(ADDR_SIZE, il.const(ADDR_SIZE, 0x41414141)))
-    return []
-
-def push(il, addr, instr, state):
-    # Push the operand to stack, variable length but extended to ADDR_SIZE
-    return il.push(ADDR_SIZE, il.const(ADDR_SIZE, instr.operand))
-
-def mload(il, addr, instr, state):
-    # Load offset
-    il.append(il.set_reg(ADDR_SIZE, LLIL_TEMP(0), il.pop(ADDR_SIZE)))
-    # Load ADDR_SIZE bytes from offset and push to stack
-    il.append(
-        il.push(ADDR_SIZE, 
-            il.load(ADDR_SIZE, il.reg(ADDR_SIZE, LLIL_TEMP(0)))
-        )
-    )
-    return []
-
-def mstore(il, addr, instr, state):
-    # Load offset and value
-    il.append(il.set_reg(ADDR_SIZE, LLIL_TEMP(0), il.pop(ADDR_SIZE)))
-    il.append(il.set_reg(ADDR_SIZE, LLIL_TEMP(1), il.pop(ADDR_SIZE)))
-    # Store value at offset
-    il.append(
-        il.store(
-            ADDR_SIZE,
-            il.reg(ADDR_SIZE, LLIL_TEMP(0)),
-            il.reg(ADDR_SIZE, LLIL_TEMP(1))
-        )
-    )
-    return []
-
-def mstore8(il, addr, instr, state):
-    # Load offset and value
-    il.append(il.set_reg(ADDR_SIZE, LLIL_TEMP(0), il.pop(ADDR_SIZE)))
-    il.append(il.set_reg(ADDR_SIZE, LLIL_TEMP(1), il.pop(ADDR_SIZE)))
-    # AND value down to 1 byte, write byte to offset
-    il.append(
-        il.store(
-            1,
-            il.reg(ADDR_SIZE, LLIL_TEMP(0)),
-            il.and_expr(ADDR_SIZE, il.reg(ADDR_SIZE, LLIL_TEMP(1)), il.const(ADDR_SIZE, 0xff))
-        )
-    )
-    return []
-
-def sload(il, addr, instr, state):
-    return []
-
-def sstore(il, addr, instr, state):
-    return []
+from . import evmhelper as h
 
 # Good reference for behavior: https://www.ethervm.io/
 insn_il = {
-    'STOP': lambda il, addr, instr, state: il.no_ret(),
-    'ADD': lambda il, addr, instr, state: il.push(
+    'STOP': lambda il, addr, instr: il.no_ret(),
+    'ADD': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.add(
             ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
         )
     ),
-    'MUL': lambda il, addr, instr, state: il.push(
+    'MUL': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.mult(
             ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
         )
     ),
-    'SUB': lambda il, addr, instr, state: il.push(
+    'SUB': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.sub(
             ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
         )
     ),
-    'DIV': lambda il, addr, instr, state: il.push(
+    'DIV': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.div_unsigned(
             ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
         )
     ),
-    'SDIV': lambda il, addr, instr, state: il.push(
+    'SDIV': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.div_signed(
             ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
         )
     ),
-    'MOD': lambda il, addr, instr, state: il.push(
+    'MOD': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.mod_unsigned(
             ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
         )
     ),
-    'SMOD': lambda il, addr, instr, state: il.push(
+    'SMOD': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.mod_signed(
             ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
         )
     ),
-    'ADDMOD': lambda il, addr, instr, state: il.push(
+    'ADDMOD': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.mod_unsigned(
             ADDR_SIZE, 
             il.add(
@@ -261,7 +70,7 @@ insn_il = {
             il.pop(ADDR_SIZE)
         )
     ),
-    'MULMOD': lambda il, addr, instr, state: il.push(
+    'MULMOD': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.mod_unsigned(
             ADDR_SIZE, 
             il.mul(
@@ -270,302 +79,252 @@ insn_il = {
             il.pop(ADDR_SIZE)
         )
     ),
-    'EXP': lambda il, addr, instr, state: il.push(
+    'EXP': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
-    'SIGNEXTEND': lambda il, addr, instr, state: il.push(
+    'SIGNEXTEND': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.sign_extend(
             ADDR_SIZE, il.pop(ADDR_SIZE)
         )
     ),
-    'LT': lambda il, addr, instr, state: il.push(
+    'LT': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.compare_unsigned_less_than(
             ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
         )
     ),
-    'GT': lambda il, addr, instr, state: il.push(
+    'GT': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.compare_unsigned_greater_than(
             ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
         )
     ),
-    'SLT': lambda il, addr, instr, state: il.push(
+    'SLT': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.compare_signed_less_than(
             ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
         )
     ),
-    'SGT': lambda il, addr, instr, state: il.push(
+    'SGT': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.compare_signed_greater_than(
             ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
         )
     ),
-    'EQ': lambda il, addr, instr, state: il.push(
+    'EQ': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.compare_equal(
             ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
         )
     ),
-    'ISZERO': lambda il, addr, instr, state: il.push(
+    'ISZERO': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.compare_equal(
             ADDR_SIZE, il.pop(ADDR_SIZE), il.const(ADDR_SIZE, 0)
         )
     ),
-    'AND': lambda il, addr, instr, state: il.push(
+    'AND': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.and_expr(
             ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
         )
     ),
-    'OR': lambda il, addr, instr, state: il.push(
+    'OR': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.or_expr(
             ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
         )
     ),
-    'XOR': lambda il, addr, instr, state: il.push(
+    'XOR': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.xor_expr(
             ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
         )
     ),
-    'NOT': lambda il, addr, instr, state: il.push(
+    'NOT': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.not_expr(
             ADDR_SIZE, il.pop(ADDR_SIZE)
         )
     ),
-    'BYTE': lambda il, addr, instr, state: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
-    'SHL': lambda il, addr, instr, state: il.push(
+    'BYTE': h.byte,
+    'SHL': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.shift_left(
             ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
         )
     ),
-    'SHR': lambda il, addr, instr, state: il.push(
+    'SHR': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.logical_shift_right(
             ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
         )
     ),
-    'SAR': lambda il, addr, instr, state: il.push(
+    'SAR': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.arith_shift_right(
             ADDR_SIZE, il.pop(ADDR_SIZE), il.pop(ADDR_SIZE)
         )
     ),
     # SHA3 and KECCAK256 are the same opcode
-    'SHA3': keccak_256,
-    'KECCAK256': keccak_256,
-    'ADDRESS': lambda il, addr, instr, state: il.push(
+    'SHA3': h.keccak256,
+    'KECCAK256': h.keccak256,
+    'ADDRESS': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
-    'ORIGIN': lambda il, addr, instr, state: il.push(
+    'BALANCE': h.balance,
+    'ORIGIN': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
-    'CALLER': lambda il, addr, instr, state: il.push(
+    'CALLER': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
-    'CALLVALUE': lambda il, addr, instr, state: il.push(
+    'CALLVALUE': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
-    'CALLDATALOAD': lambda il, addr, instr, state: il.push(
+    'CALLDATALOAD': h.calldataload,
+    'CALLDATASIZE': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
-    'CALLDATASIZE': lambda il, addr, instr, state: il.push(
+    'CALLDATACOPY': h.calldatacopy,
+    'CODESIZE': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
-    'CALLDATACOPY': lambda il, addr, instr, state: il.push(
+    'CODECOPY': h.codecopy,
+    'GASPRICE': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
-    'CODESIZE': lambda il, addr, instr, state: il.push(
+    'EXTCODESIZE': h.extcodesize,
+    'EXTCODECOPY': h.extcodecopy,
+    'RETURNDATASIZE': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
-    'CODECOPY': lambda il, addr, instr, state: il.push(
+    'RETURNDATACOPY': h.returndatacopy,
+    'EXTCODEHASH': h.extcodehash,
+    'BLOCKHASH': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
-    'GASPRICE': lambda il, addr, instr, state: il.push(
+    'COINBASE': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
-    'EXTCODESIZE': lambda il, addr, instr, state: il.push(
+    'TIMESTAMP': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
-    'EXTCODECOPY': lambda il, addr, instr, state: il.push(
+    'NUMBER': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
-    'RETURNDATASIZE': lambda il, addr, instr, state: il.push(
+    'DIFFICULTY': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
-    'RETURNDATACOPY': lambda il, addr, instr, state: il.push(
+    'GASLIMIT': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
-    'EXTCODEHASH': lambda il, addr, instr, state: il.push(
+    'CHAINID': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
-    'BLOCKHASH': lambda il, addr, instr, state: il.push(
+    'BASEFEE': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
-    'COINBASE': lambda il, addr, instr, state: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
-    'TIMESTAMP': lambda il, addr, instr, state: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
-    'NUMBER': lambda il, addr, instr, state: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
-    'DIFFICULTY': lambda il, addr, instr, state: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
-    'GASLIMIT': lambda il, addr, instr, state: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
-    'CHAINID': lambda il, addr, instr, state: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
-    'BASEFEE': lambda il, addr, instr, state: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
-    'POP': lambda il, addr, instr, state: il.pop(ADDR_SIZE),
-    'MLOAD': mload,
-    'MSTORE': mstore,
-    'MSTORE8': mstore8,
-    'SLOAD': lambda il, addr, instr, state: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
-    'SSTORE': lambda il, addr, instr, state: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
-    'JUMP': jump,
-    'JUMPI': jumpi,
+    'POP': lambda il, addr, instr: il.pop(ADDR_SIZE),
+    'MLOAD': h.mload,
+    'MSTORE': h.mstore,
+    'MSTORE8': h.mstore8,
+    'SLOAD': h.sload,
+    'SSTORE': h.sstore,
+    'JUMP': h.jump,
+    'JUMPI': h.jumpi,
     # GETPC and PC are the same opcode
-    'GETPC': lambda il, addr, instr, state: il.push(
+    'GETPC': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
-    'PC': lambda il, addr, instr, state: il.push(
+    'PC': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
-    'MSIZE': lambda il, addr, instr, state: il.push(
+    'MSIZE': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
-    'GAS': lambda il, addr, instr, state: il.push(
+    'GAS': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
-    'JUMPDEST': lambda il, addr, instr, state: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
+    'JUMPDEST': lambda il, addr, instr: [],
     # PUSH is not a real opcode, pyevmasm returns it instead of PUSH* with parameters parsed
-    'PUSH': push,
-    'PUSH1':  push,
-    'PUSH2':  push,
-    'PUSH3':  push,
-    'PUSH4':  push,
-    'PUSH5':  push,
-    'PUSH6':  push,
-    'PUSH7':  push,
-    'PUSH8':  push,
-    'PUSH9':  push,
-    'PUSH10': push,
-    'PUSH11': push,
-    'PUSH12': push,
-    'PUSH13': push,
-    'PUSH14': push,
-    'PUSH15': push,
-    'PUSH16': push,
-    'PUSH17': push,
-    'PUSH18': push,
-    'PUSH19': push,
-    'PUSH20': push,
-    'PUSH21': push,
-    'PUSH22': push,
-    'PUSH23': push,
-    'PUSH24': push,
-    'PUSH25': push,
-    'PUSH26': push,
-    'PUSH27': push,
-    'PUSH28': push,
-    'PUSH29': push,
-    'PUSH30': push,
-    'PUSH31': push,
-    'PUSH32': push,
+    'PUSH': h.push,
+    'PUSH1':  h.push,
+    'PUSH2':  h.push,
+    'PUSH3':  h.push,
+    'PUSH4':  h.push,
+    'PUSH5':  h.push,
+    'PUSH6':  h.push,
+    'PUSH7':  h.push,
+    'PUSH8':  h.push,
+    'PUSH9':  h.push,
+    'PUSH10': h.push,
+    'PUSH11': h.push,
+    'PUSH12': h.push,
+    'PUSH13': h.push,
+    'PUSH14': h.push,
+    'PUSH15': h.push,
+    'PUSH16': h.push,
+    'PUSH17': h.push,
+    'PUSH18': h.push,
+    'PUSH19': h.push,
+    'PUSH20': h.push,
+    'PUSH21': h.push,
+    'PUSH22': h.push,
+    'PUSH23': h.push,
+    'PUSH24': h.push,
+    'PUSH25': h.push,
+    'PUSH26': h.push,
+    'PUSH27': h.push,
+    'PUSH28': h.push,
+    'PUSH29': h.push,
+    'PUSH30': h.push,
+    'PUSH31': h.push,
+    'PUSH32': h.push,
     # DUP is not a real opcode, pyevmasm returns it in place of any DUP* with parameters parsed
-    'DUP': lambda il, addr, instr, state: dup(il, addr, instr.pops),
-    'DUP1': lambda il, addr, instr, state: dup(il, addr, 1),
-    'DUP2': lambda il, addr, instr, state: dup(il, addr, 2),
-    'DUP3': lambda il, addr, instr, state: dup(il, addr, 3),
-    'DUP4': lambda il, addr, instr, state: dup(il, addr, 4),
-    'DUP5': lambda il, addr, instr, state: dup(il, addr, 5),
-    'DUP6': lambda il, addr, instr, state: dup(il, addr, 6),
-    'DUP7': lambda il, addr, instr, state: dup(il, addr, 7),
-    'DUP8': lambda il, addr, instr, state: dup(il, addr, 8),
-    'DUP9': lambda il, addr, instr, state: dup(il, addr, 9),
-    'DUP10': lambda il, addr, instr, state: dup(il, addr, 10),
-    'DUP11': lambda il, addr, instr, state: dup(il, addr, 11),
-    'DUP12': lambda il, addr, instr, state: dup(il, addr, 12),
-    'DUP13': lambda il, addr, instr, state: dup(il, addr, 13),
-    'DUP14': lambda il, addr, instr, state: dup(il, addr, 14),
-    'DUP15': lambda il, addr, instr, state: dup(il, addr, 15),
-    'DUP16': lambda il, addr, instr, state: dup(il, addr, 16),
+    'DUP': lambda il, addr, instr: h.dup(il, addr, instr.pops),
+    'DUP1': lambda il, addr, instr: h.dup(il, addr, 1),
+    'DUP2': lambda il, addr, instr: h.dup(il, addr, 2),
+    'DUP3': lambda il, addr, instr: h.dup(il, addr, 3),
+    'DUP4': lambda il, addr, instr: h.dup(il, addr, 4),
+    'DUP5': lambda il, addr, instr: h.dup(il, addr, 5),
+    'DUP6': lambda il, addr, instr: h.dup(il, addr, 6),
+    'DUP7': lambda il, addr, instr: h.dup(il, addr, 7),
+    'DUP8': lambda il, addr, instr: h.dup(il, addr, 8),
+    'DUP9': lambda il, addr, instr: h.dup(il, addr, 9),
+    'DUP10': lambda il, addr, instr: h.dup(il, addr, 10),
+    'DUP11': lambda il, addr, instr: h.dup(il, addr, 11),
+    'DUP12': lambda il, addr, instr: h.dup(il, addr, 12),
+    'DUP13': lambda il, addr, instr: h.dup(il, addr, 13),
+    'DUP14': lambda il, addr, instr: h.dup(il, addr, 14),
+    'DUP15': lambda il, addr, instr: h.dup(il, addr, 15),
+    'DUP16': lambda il, addr, instr: h.dup(il, addr, 16),
     # SWAP is not a real opcode, pyevmasm returns it in place of any SWAP* with parameters parsed
-    'SWAP': lambda il, addr, instr, state: swap(il, addr, instr.pops),
-    'SWAP1': lambda il, addr, instr, state: swap(il, addr, 1),
-    'SWAP2': lambda il, addr, instr, state: swap(il, addr, 2),
-    'SWAP3': lambda il, addr, instr, state: swap(il, addr, 3),
-    'SWAP4': lambda il, addr, instr, state: swap(il, addr, 4),
-    'SWAP5': lambda il, addr, instr, state: swap(il, addr, 5),
-    'SWAP6': lambda il, addr, instr, state: swap(il, addr, 6),
-    'SWAP7': lambda il, addr, instr, state: swap(il, addr, 7),
-    'SWAP8': lambda il, addr, instr, state: swap(il, addr, 8),
-    'SWAP9': lambda il, addr, instr, state: swap(il, addr, 9),
-    'SWAP10': lambda il, addr, instr, state: swap(il, addr, 10),
-    'SWAP11': lambda il, addr, instr, state: swap(il, addr, 11),
-    'SWAP12': lambda il, addr, instr, state: swap(il, addr, 12),
-    'SWAP13': lambda il, addr, instr, state: swap(il, addr, 13),
-    'SWAP14': lambda il, addr, instr, state: swap(il, addr, 14),
-    'SWAP15': lambda il, addr, instr, state: swap(il, addr, 15),
-    'SWAP16': lambda il, addr, instr, state: swap(il, addr, 16),
-    'LOG0': lambda il, addr, instr, state: il.push(
+    'SWAP': lambda il, addr, instr: h.swap(il, addr, instr.pops),
+    'SWAP1': lambda il, addr, instr: h.swap(il, addr, 1),
+    'SWAP2': lambda il, addr, instr: h.swap(il, addr, 2),
+    'SWAP3': lambda il, addr, instr: h.swap(il, addr, 3),
+    'SWAP4': lambda il, addr, instr: h.swap(il, addr, 4),
+    'SWAP5': lambda il, addr, instr: h.swap(il, addr, 5),
+    'SWAP6': lambda il, addr, instr: h.swap(il, addr, 6),
+    'SWAP7': lambda il, addr, instr: h.swap(il, addr, 7),
+    'SWAP8': lambda il, addr, instr: h.swap(il, addr, 8),
+    'SWAP9': lambda il, addr, instr: h.swap(il, addr, 9),
+    'SWAP10': lambda il, addr, instr: h.swap(il, addr, 10),
+    'SWAP11': lambda il, addr, instr: h.swap(il, addr, 11),
+    'SWAP12': lambda il, addr, instr: h.swap(il, addr, 12),
+    'SWAP13': lambda il, addr, instr: h.swap(il, addr, 13),
+    'SWAP14': lambda il, addr, instr: h.swap(il, addr, 14),
+    'SWAP15': lambda il, addr, instr: h.swap(il, addr, 15),
+    'SWAP16': lambda il, addr, instr: h.swap(il, addr, 16),
+    'LOG0': lambda il, addr, instr: h.log(il, addr, instr, 0),
+    'LOG1': lambda il, addr, instr: h.log(il, addr, instr, 1),
+    'LOG2': lambda il, addr, instr: h.log(il, addr, instr, 2),
+    'LOG3': lambda il, addr, instr: h.log(il, addr, instr, 3),
+    'LOG4': lambda il, addr, instr: h.log(il, addr, instr, 4),
+    'CREATE': h.create,
+    'CALL': h.call,
+    'CALLCODE': h.callcode,
+    'RETURN': h.return_op,
+    'DELEGATECALL': h.delegatecall,
+    'CREATE2': h.create2,
+    'STATICCALL': h.staticcall,
+    'TXEXECGAS': lambda il, addr, instr: il.push(
         ADDR_SIZE, il.unimplemented()
     ),
-    'LOG1': lambda il, addr, instr, state: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
-    'LOG2': lambda il, addr, instr, state: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
-    'LOG3': lambda il, addr, instr, state: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
-    'LOG4': lambda il, addr, instr, state: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
-    'CREATE': lambda il, addr, instr, state: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
-    'CALL': lambda il, addr, instr, state: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
-    'CALLCODE': lambda il, addr, instr, state: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
-    'RETURN': lambda il, addr, instr, state: il.ret(il.pop(ADDR_SIZE)),
-    'DELEGATECALL': lambda il, addr, instr, state: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
-    'CREATE2': lambda il, addr, instr, state: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
-    'STATICCALL': lambda il, addr, instr, state: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
-    'TXEXECGAS': lambda il, addr, instr, state: il.push(
-        ADDR_SIZE, il.unimplemented()
-    ),
-    'REVERT': lambda il, addr, instr, state: il.no_ret(),
-    'INVALID': lambda il, addr, instr, state: il.no_ret(),
+    'REVERT': h.revert,
+    'INVALID': lambda il, addr, instr: il.no_ret(),
     # SUICIDE and SELFDESTRUCT are the same opcode, renamed at some point
-    'SUICIDE': lambda il, addr, instr, state: il.ret(il.pop(ADDR_SIZE)),
-    'SELFDESTRUCT': lambda il, addr, instr, state: il.ret(il.pop(ADDR_SIZE)),
+    'SUICIDE': h.selfdestruct,
+    'SELFDESTRUCT': h.selfdestruct,
 }
-
-@dataclass
-class EVMState:
-    storage: dict[int, int]
-
-    def __init__(self):
-        storage = {}
 
 class EVM(Architecture):
     name = "EVM"
@@ -585,8 +344,6 @@ class EVM(Architecture):
     regs = {
         "sp": RegisterInfo("sp", ADDR_SIZE),
     }
-
-    state = EVMState()
 
     stack_pointer = "sp"
 
@@ -652,7 +409,7 @@ class EVM(Architecture):
 
             return instruction.size
 
-        ils = ill(il, addr, instruction, self.state)
+        ils = ill(il, addr, instruction)
         if isinstance(ils, list):
             for i in ils:
                 il.append(il)
